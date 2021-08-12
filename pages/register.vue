@@ -82,8 +82,6 @@ export default {
     handlerRegister () {
       this.$refs.registerForm.validate(async (valid) => {
         if (valid) {
-          console.log('校验成功')
-          // TODO 发送注册请求
           const params = {
             email: this.form.email,
             password: md5(this.form.password), // 注意这里实际使用时应该加盐
@@ -102,7 +100,7 @@ export default {
             this.$message.error(res.message)
           }
         } else {
-          console.log('校验失败')
+          // console.error('校验失败')
         }
       })
     }
