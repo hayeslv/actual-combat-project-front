@@ -7,11 +7,21 @@
       <el-form-item prop="email" label="邮箱">
         <el-input v-model="form.email" placeholder="请输入邮箱" />
       </el-form-item>
+      <!-- 图片验证码 -->
       <el-form-item prop="captcha" label="验证码" class="captcha-container">
         <div class="captcha">
           <img :src="code.captcha" alt="" @click="resetCaptcha">
         </div>
         <el-input v-model="form.captcha" placeholder="请输入验证码" />
+      </el-form-item>
+      <!-- 邮件验证码 -->
+      <el-form-item prop="emailcode" label="邮箱验证码" class="captcha-container">
+        <div class="captcha">
+          <el-button type="primary" :disabled="send.timer>0" @click="sendEmailCode">
+            {{ sendText }}
+          </el-button>
+        </div>
+        <el-input v-model="form.captcha" placeholder="请输入邮箱验证码" />
       </el-form-item>
       <el-form-item prop="password" label="密码">
         <el-input v-model="form.password" type="password" placeholder="请输入密码" />
@@ -31,8 +41,12 @@ export default {
   layout: 'login',
   data () {
     return {
+      timer: null,
+      send: {
+        timer: 0
+      },
       form: {
-        email: '417703683@qq.com',
+        email: '417703682@qq.com',
         password: 'a417703683',
         captcha: ''
       },
@@ -44,6 +58,9 @@ export default {
         captcha: [
           { required: true, message: '请输入验证码' }
         ],
+        emailcode: [
+          { required: true, message: '请输入邮箱验证码' }
+        ],
         password: [
           { required: true, pattern: /^[\w_-]{6,12}$/, message: '请输入6~12位密码' }
         ]
@@ -53,7 +70,27 @@ export default {
       }
     }
   },
+  computed: {
+    sendText () {
+      if (this.send.timer <= 0) {
+        return '发送'
+      }
+      return `${this.send.timer}s后发送`
+    }
+  },
   methods: {
+    // 发送邮件
+    async sendEmailCode () {
+      await this.$http.get('/sendcode?email=' + this.form.email)
+      this.send.timer = 5 // 生成环境改成60秒
+      this.timer = setInterval(() => {
+        this.send.timer -= 1
+        if (this.send.timer === 0) {
+          clearInterval(this.timer)
+          this.timer = null
+        }
+      }, 1000)
+    },
     resetCaptcha () {
       this.code.captcha = '/api/captcha?_t' + new Date().getTime()
     },
