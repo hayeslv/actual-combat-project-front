@@ -2,6 +2,7 @@
  * @Author: Lvhz
  * @Date: 2021-08-12 17:42:51
  * @Description: 版本4：web-worker计算md5（大文件上传前提）
+ *                      利用空闲时间（idle，react中的原理）计算md5
 -->
 <template>
   <div>
@@ -25,7 +26,8 @@
 </template>
 
 <script>
-const CHUNK_SIZE = 0.5 * 1024 * 1024 // 初始化切片大小为 0.5M
+import sparkMD5 from 'spark-md5'
+const CHUNK_SIZE = 0.1 * 1024 * 1024 // 初始化切片大小为 0.5M
 export default {
   data () {
     return {
@@ -87,8 +89,40 @@ export default {
         }
       })
     },
-    async calculateHashIdle () {
+    calculateHashIdle () {
+      const chunks = this.chunks
+      return new Promise((resolve) => {
+        const spark = new sparkMD5.ArrayBuffer()
+        let count = 0
 
+        const appendToSpark = (file) => {
+          return new Promise((resolve) => {
+            const reader = new FileReader()
+            reader.readAsArrayBuffer(file)
+            reader.onload = (e) => {
+              spark.append(e.target.result)
+              resolve()
+            }
+          })
+        }
+        const workLoop = async (deadline) => {
+          while (count < chunks.length && deadline.timeRemaining() > 1) {
+            // 空闲时间，且有任务
+            await appendToSpark(chunks[count].file)
+            count++
+            if (count < chunks.length) {
+              this.hashProgress = Number(
+                ((100 * count) / chunks.length).toFixed(2)
+              )
+            } else {
+              this.hashProgress = 100
+              resolve(spark.end())
+            }
+          }
+          window.requestIdleCallback(workLoop)
+        }
+        window.requestIdleCallback(workLoop)
+      })
     },
     // 计算文件chunk
     createFileChunk (file, size = CHUNK_SIZE) {
@@ -103,8 +137,14 @@ export default {
     async uploadFile () {
       // 切片上传 + 合并
       this.chunks = this.createFileChunk(this.file)
+      console.time('hash')
       const hash = await this.calculateHashWorker()
+      console.timeEnd('hash')
+      console.time('hash1')
+      const hash1 = await this.calculateHashIdle()
+      console.timeEnd('hash1')
       console.log('文件hash', hash)
+      console.log('文件hash1', hash1)
 
       // const form = new FormData()
       // form.append('name', 'file')

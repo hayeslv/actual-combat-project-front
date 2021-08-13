@@ -28,7 +28,7 @@ self.onmessage = (e) => {
         })
       } else {
         progress += 100 / chunks.length
-        console.log(progress)
+        // console.log(progress)
         self.postMessage({
           progress: parseInt(progress)
         })
