@@ -1,9 +1,8 @@
 <!--
  * @Author: Lvhz
  * @Date: 2021-08-12 17:42:51
- * @Description: 版本4：web-worker计算md5（大文件上传前提）
- *                     利用空闲时间（idle，react中的原理）计算md5
- *                     抽样hash
+ * @Description: 版本5：切片上传，这里直接使用抽样hash（因为快）。
+ *               正式环境可以考虑，先使用抽样hash判断是否存在，如果不存在，再将文件2等分，使用web-worker和idle同时计算hash
 -->
 <template>
   <div>
@@ -23,18 +22,42 @@
       <p>计算hash的进度</p>
       <el-progress :stroke-width="20" :text-inside="true" :percentage="hashProgress" />
     </div>
+    <div>
+      <!-- 如果progress < 0，就报错，显示红色；100成功 -->
+      <div class="cube-container" :style="{width: cubeWidth+'px'}">
+        <div v-for="chunk in chunks" :key="chunk.name" class="cube">
+          <div :class="{'uploading': chunk.progress > 0 && chunk.progress < 100, 'success': chunk.progress === 100, 'error': chunk.progress < 0}" />
+          <i v-if="chunk.progress > 0 && chunk.progress < 100" class="el-icon-loading" style="color: #f56c6c" />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
 import sparkMD5 from 'spark-md5'
-const CHUNK_SIZE = 0.1 * 1024 * 1024 // 初始化切片大小为 0.5M
+const CHUNK_SIZE = 0.1 * 1024 * 1024 // 初始化切片大小为 0.1M
 export default {
   data () {
     return {
       file: null,
-      uploadProgress: 0, // 进度
-      hashProgress: 0
+      // uploadProgress: 0, // 进度
+      hashProgress: 0,
+      chunks: []
+    }
+  },
+  computed: {
+    cubeWidth () {
+      // 每个方块长度是16像素
+      return Math.ceil(Math.sqrt(this.chunks.length)) * 16
+    },
+    uploadProgress () {
+      if (!this.file || this.chunks.length) {
+        return 0
+      }
+      const loaded = this.chunks.map(item => item.chunk.size * item.progress)
+        .reduce((acc, cur) => acc + cur, 0)
+      return parseInt(100 * loaded / this.file.size)
     }
   },
   async mounted () {
@@ -174,20 +197,39 @@ export default {
     },
     async uploadFile () {
       // 切片上传 + 合并
-      this.chunks = this.createFileChunk(this.file)
-      console.time('hash')
-      const hash = await this.calculateHashWorker()
-      console.timeEnd('hash')
-      console.time('hash1')
-      const hash1 = await this.calculateHashIdle()
-      console.timeEnd('hash1')
-      console.time('hash2')
-      const hash2 = await this.calculateHashSample()
-      console.timeEnd('hash2')
-      console.log('文件hash', hash)
-      console.log('文件hash1', hash1)
-      console.log('文件hash2', hash2)
+      const chunks = this.createFileChunk(this.file)
+      const hash = await this.calculateHashSample()
+      this.hash = hash
 
+      this.chunks = chunks.map((chunk, index) => {
+        // 切片的名字，hash + index
+        const name = hash + '-' + index
+        return {
+          hash,
+          name,
+          index,
+          chunk: chunk.file
+        }
+      })
+      await this.uploadChunks()
+    },
+    async uploadChunks () {
+      const requests = this.chunks.map((chunk, index) => {
+        // 转成Promise
+        const form = new FormData()
+        form.append('chunk', chunk.chunk)
+        form.append('hash', chunk.hash)
+        form.append('name', chunk.name)
+        // form.append('index', chunk.index)
+        return form
+      }).map((form, index) => this.$http.post('uploadfileChunk', {
+        onUploadProgress: (progress) => {
+          // 不是整体的进度条了，而是每个区块有自己的进度条，整体的进度条需要计算
+          this.chunks[index].progress = Number(((progress.loaded / progress.total) * 100).toFixed(2))
+        }
+      }))
+      // todo 并发量控制
+      await Promise.all(requests)
       // const form = new FormData()
       // form.append('name', 'file')
       // form.append('file', this.file)
@@ -216,5 +258,24 @@ export default {
   border: 2px dashed #eee;
   text-align: center;
   vertical-align: middle;
+}
+.cube-container{
+  .cube{
+    width: 14px;
+    height: 14px;
+    line-height: 12px;
+    border: 1px solid black;
+    background-color: #eee;
+    float: left;
+    >.success{
+      background-color: green;
+    }
+    >.uploading{
+      background-color: blue;
+    }
+    >.error{
+      background-color: red;
+    }
+  }
 }
 </style>
