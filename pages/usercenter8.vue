@@ -291,7 +291,7 @@ export default {
               this.chunks[index].progress = -1
               if (task.error < 3) {
                 task.error++
-                console.log('测试git凭据')
+                console.log('测试git凭据11')
                 chunks.unshift(task)
                 start()
               } else {
