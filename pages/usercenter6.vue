@@ -1,8 +1,7 @@
 <!--
  * @Author: Lvhz
  * @Date: 2021-08-12 17:42:51
- * @Description: 版本5：切片上传，这里直接使用抽样hash（因为快）。
- *               正式环境可以考虑，先使用抽样hash判断是否存在，如果不存在，再将文件2等分，使用web-worker和idle同时计算hash
+ * @Description: 断点续传
 -->
 <template>
   <div>
@@ -200,6 +199,17 @@ export default {
       const chunks = this.createFileChunk(this.file)
       const hash = await this.calculateHashSample()
       this.hash = hash
+
+      // 问一下后端，文件是否上传过，如果没有，是否有存在的切片
+      const { data: { uploaded, uploadedList } } = await this.$http.post('/checkfile', {
+        hash: this.hash,
+        ext: this.file.name.split('.').pop()
+      })
+
+      if (uploaded) {
+        // 秒传
+        return this.$message.success('秒传成功！')
+      }
 
       this.chunks = chunks.map((chunk, index) => {
         // 切片的名字，hash + index
