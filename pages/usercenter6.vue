@@ -35,7 +35,7 @@
 
 <script>
 import sparkMD5 from 'spark-md5'
-const CHUNK_SIZE = 1 * 1024 * 1024 // 初始化切片大小为 0.1M
+const CHUNK_SIZE = 0.5 * 1024 * 1024 // 初始化切片大小为 0.1M
 export default {
   data () {
     return {
@@ -219,26 +219,28 @@ export default {
           name,
           index,
           chunk: chunk.file,
-          progress: 0
+          progress: uploadedList.includes(name) ? 100 : 0
         }
       })
-      await this.uploadChunks()
+      await this.uploadChunks(uploadedList)
     },
-    async uploadChunks () {
-      const requests = this.chunks.map((chunk, index) => {
+    async uploadChunks (uploadedList = []) {
+      const requests = this.chunks
+        .filter(chunk => !uploadedList.includes(chunk.name))
+        .map((chunk, index) => {
         // 转成Promise
-        const form = new FormData()
-        form.append('chunk', chunk.chunk)
-        form.append('hash', chunk.hash)
-        form.append('name', chunk.name)
-        // form.append('index', chunk.index)
-        return form
-      }).map((form, index) => this.$http.post('uploadfileChunk', form, {
-        onUploadProgress: (progress) => {
+          const form = new FormData()
+          form.append('chunk', chunk.chunk)
+          form.append('hash', chunk.hash)
+          form.append('name', chunk.name)
+          // form.append('index', chunk.index)
+          return { form, index: chunk.index }
+        }).map(({ form, index }) => this.$http.post('uploadfileChunk', form, {
+          onUploadProgress: (progress) => {
           // 不是整体的进度条了，而是每个区块有自己的进度条，整体的进度条需要计算
-          this.chunks[index].progress = Number(((progress.loaded / progress.total) * 100).toFixed(2))
-        }
-      }))
+            this.chunks[index].progress = Number(((progress.loaded / progress.total) * 100).toFixed(2))
+          }
+        }))
       // todo 并发量控制
       await Promise.all(requests)
 
