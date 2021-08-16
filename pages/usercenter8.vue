@@ -1,7 +1,7 @@
 <!--
  * @Author: Lvhz
  * @Date: 2021-08-12 17:42:51
- * @Description: 并发数控制
+ * @Description: 报错重试 + 报错次数限制
 -->
 <template>
   <div>
@@ -35,7 +35,7 @@
 
 <script>
 import sparkMD5 from 'spark-md5'
-const CHUNK_SIZE = 0.5 * 1024 * 1024 // 初始化切片大小为 0.1M
+const CHUNK_SIZE = 100 * 1024 // 初始化切片大小为 0.1M
 export default {
   data () {
     return {
@@ -235,7 +235,7 @@ export default {
           form.append('hash', chunk.hash)
           form.append('name', chunk.name)
           // form.append('index', chunk.index)
-          return { form, index: chunk.index }
+          return { form, index: chunk.index, error: 0 }
         })
         // .map(({ form, index }) => this.$http.post('uploadfileChunk', form, {
         //   onUploadProgress: (progress) => {
@@ -245,7 +245,7 @@ export default {
         // }))
       // 尝试申请tcp链接过多，也会造成卡顿
       // await Promise.all(requests)
-      await this.endRequest(requests)
+      await this.sendRequest(requests)
 
       // 切片传送完毕，发送合并切片请求
       this.mergeRequest()
@@ -260,26 +260,44 @@ export default {
       // })
       // console.log(res)
     },
-    endRequest (chunks, limit = 3) {
+    // 上传可能报错
+    // 报错之后，进度条变红，开始重试
+    // 一个切片重试失败三次，整体全部终止
+    sendRequest (chunks, limit = 3) {
       // 核心的思路是用一个数组，数组的长度是limit
       return new Promise((resolve, reject) => {
         const len = chunks.length // 总任务数
         let count = 0 // 完成任务数
+        let isStop = false
         const start = async () => {
+          if (isStop) { return }
           const task = chunks.shift()
           if (task) {
             const { form, index } = task
-            await this.$http.post('uploadfileChunk', form, {
-              onUploadProgress: (progress) => {
-                this.chunks[index].progress = Number(((progress.loaded / progress.total) * 100).toFixed(2))
+            try {
+              await this.$http.post('uploadfileChunk', form, {
+                onUploadProgress: (progress) => {
+                  this.chunks[index].progress = Number(((progress.loaded / progress.total) * 100).toFixed(2))
+                }
+              })
+              if (count === len - 1) { // 最后一个任务
+                resolve()
+              } else {
+                count++
+                // 当前任务完成，启动下一个任务
+                start()
               }
-            })
-            if (count === len - 1) { // 最后一个任务
-              resolve()
-            } else {
-              count++
-              // 当前任务完成，启动下一个任务
-              start()
+            } catch (error) {
+              this.chunks[index].progress = -1
+              if (task.error < 3) {
+                task.error++
+                chunks.unshift(task)
+                start()
+              } else {
+                // 错误三次
+                isStop = true
+                reject(error)
+              }
             }
           }
         }
